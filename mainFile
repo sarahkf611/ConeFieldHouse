@@ -1,0 +1,423 @@
+/*
+Final Project: Walkthrough of Cone Field House using Collision Detection
+By: Sarah Fincher 
+December 4, 2014
+My program is a model of Cone Field House that uses collision detection to prohibit the user from walking through the walls or through the chairs and score table, while allowing them to walk up and down the bleachers, by adjusting the camera height accordingly. I modeled the bleachers, chairs, score table, and basketball hoops using Maya and used primitives for the other objects.
+The files needed for this project to run:
+Bleachers.obj
+ScoreTable.obj
+Bench.obj
+hoop.obj
+The keys to operate once inside the program are simply the arrow keys which move you forward(up), backwards(down), look left(left), and look right(right). You can also lookup(home) and look down(end).
+*/
+
+#include "Angel.h"
+#include <iostream>
+using std::cout;
+
+#include "MatrixStack.h"
+#include "Shapes.h"
+#include "Car.h"
+#include "Axes.h"
+#include "Globals.h"
+#include "Camera.h"
+#include "LightingShading.h"
+#include "Checkerboard.h"
+#include "ImageTexture.h"
+#include "ObjObject.h"
+
+
+
+//********  These are available as extern variables in Globals.h **************
+GLuint  projection; // projection matrix uniform shader variable location
+GLuint  model_view;   // model-view matrix uniform shader variable location
+GLuint  model_color;  // uniform shader variable location for color
+GLuint  color_source;
+GLuint program;  // shader programs
+
+MatrixStack mvMatrixStack;  // stores the model view matrix stack
+Shapes shapes;
+LightingShading lightingshade;
+
+Checkerboard checkerboard;
+ImageTexture Wood("Textures/images/wood_texture.tga");
+ImageTexture Brickwall("Textures/images/Brickwall3.tga");
+ImageTexture Light("Textures/images/light.tga");
+ImageTexture Court("Textures/images/Court22.tga");
+ImageTexture scoreboard("Textures/images/scoreboard.tga");
+ImageTexture red("Textures/images/red2.tga");
+ImageTexture lightGray("Textures/images/lightGray.tga");
+ImageTexture bearcat("Textures/images/Bearcat.tga");
+//********  End extern variables in Globals.h **************
+
+ObjObject bleacher("objFiles/Bleachers.obj");
+ObjObject bench("objFiles/Bench.obj");
+ObjObject hoop("objFiles/hoop.obj");
+ObjObject score("objFiles/scoretable.obj");
+
+Camera camera;
+
+float animateAngle = 0;  // used for animation
+
+Car myCar;
+
+Axes axes;
+
+//---------------------------------------------------------------------------- printControls
+
+void printControls()
+{
+    cout << "\n\n************  Controls **************" << "\n";
+    cout << "q or Q ............ quit" << "\n";
+    //cout << "f ................. move car forward" << "\n";
+    //cout << "b ................. move car backward" << "\n";
+    camera.printCameraControls();
+}
+
+//---------------------------------------------------------------------------- init
+// OpenGL initialization
+void
+init()
+{
+    camera.calcUVN();
+
+    program = InitShader( "vertexPhong.glsl", "fragmentPhong.glsl" );
+    glUseProgram(program );
+    lightingshade.setUp(program);
+    checkerboard.setUp(program);
+    Brickwall.setUp(program);
+    Light.setUp(program);
+    Court.setUp(program);
+    scoreboard.setUp(program);
+    Wood.setUp(program);
+    red.setUp(program);
+    lightGray.setUp(program);
+    bearcat.setUp(program);
+
+    // Uniform variables
+    model_color = glGetUniformLocation( program, "model_color" );
+    model_view  = glGetUniformLocation( program, "model_view" );
+    projection  = glGetUniformLocation( program, "projection" );
+    color_source = glGetUniformLocation( program, "color_source");
+    //checkerboard = glGetUniformLocation( program, "checkerboard");
+
+    GLuint vao[4];
+    glGenVertexArrays(4, vao );
+    bleacher.createVAO(vao[0], program);
+    bench.createVAO(vao[1], program);
+    hoop.createVAO(vao[2],program);
+    score.createVAO(vao[3],program);
+
+    glLineWidth(2);  // sets the thickness of the line for the wired shapes
+    shapes.createBuffers(program);
+
+    glEnable( GL_DEPTH_TEST );
+    glClearColor( 0.5, 0.5, 0.5, 1.0 );
+    printControls();
+}
+
+//---------------------------------------------------------------------------- drawGround
+
+void drawGym(mat4 mv)
+{
+    int width = 120;//x
+    int height = 50;//y
+    int length = 150;//z
+    mvMatrixStack.pushMatrix(mv);
+    mv = mv*Translate(.5*width,.5*height,.5*length);
+    mv = mv*Scale(width, height, length);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    shapes.drawCube(vec4(1,1,1,1));
+    mv = mvMatrixStack.popMatrix();
+}
+
+void drawCourt(mat4 mv)
+{
+    int width = 120;
+    int height = 1;
+    int length = 150;
+    mvMatrixStack.pushMatrix(mv);
+    mv = mv*Translate(width,.5*height,length);
+    mv = mv*Scale(2*width, height,length);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    shapes.drawPlane(vec4(1,1,1,1));
+    mv = mvMatrixStack.popMatrix();
+}
+
+void drawBanners(mat4 mv)
+{
+    for(int i=15; i<230; i+=20)
+    {
+        int width = 12;
+        int height = 32;
+        int length = 1;
+        mvMatrixStack.pushMatrix(mv);
+        mv = mv*Translate(i, 75 , 0);
+        mv = mv*Scale(width, height,length);
+        mv = mv*RotateY(90);
+        glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+        shapes.drawPlane(vec4(1,1,1,1));
+        mv = mvMatrixStack.popMatrix();
+
+    }
+}
+
+//----------------------------------------------------------------------------drawLights
+void drawLights(mat4 mv)
+{
+    for(int i=60; i<190; i+=30)
+    {
+        for(int j=20; j< 300; j+=60)
+        {
+            mvMatrixStack.pushMatrix(mv);
+            vec4 new_light_position = mv*lightingshade.light_position;
+            glUniform4fv( glGetUniformLocation(program, "light_position"),
+                          1, new_light_position ); //Send to Shader
+
+            vec4 new_cone_direction = mv*lightingshade.cone_direction;
+            glUniform4fv( glGetUniformLocation(program, "cone_direction"),
+                          1, new_cone_direction );
+
+            float new_cos_cut_off = lightingshade.cos_cut_off;
+            glUniform1f( glGetUniformLocation(program, "cos_cut_off"),
+                         new_cos_cut_off );
+
+            float new_spot_exponent = lightingshade.spot_exponent;
+            glUniform1f( glGetUniformLocation(program, "spot_exponent"),
+                         new_spot_exponent );
+
+            mv = mv*Translate(i,97,j);//lightingshade.light_position);
+            //mv = mv*Translate(lightingshade.light_position);
+            glUniformMatrix4fv( model_view,1,GL_TRUE,mv);
+            shapes.drawDisk(vec4(1,1,1,1));
+
+            mv = mvMatrixStack.popMatrix();
+        }
+    }
+}
+//----------------------------------------------------------- display
+
+void
+display( void )
+{
+    // clear the color and depth buffers
+    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+
+    // calculate and set camera projection parameters:
+    mat4  p = camera.calcPerspective();
+    glUniformMatrix4fv( projection, 1, GL_TRUE, p );
+    glUniform1i(color_source, 1);
+
+
+    mat4 mv;  // modelview matrix
+
+    // Initialize the modelview matrix to contain the camera orientation and location
+    mvMatrixStack.loadIdentity();
+    // SET THE CAMERA VIEW MATRIX:
+    //  NEED TO IMPLEMENT !!!  Initialize mv with V = view matrix
+    mv =camera.viewRotation*Translate(-camera.eye);
+
+
+
+    //Drawing the walls, floor, and ceiling
+    Brickwall.bind(program);
+    drawGym(mv);
+    mv = mv*Scale(.5);
+
+    //Drawing the Lights
+    Light.bind(program);
+    drawLights(mv);
+
+    //Drawing the Banners
+    bearcat.bind(program);
+    drawBanners(mv);
+
+    //near scoreboard
+    scoreboard.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    mv = mv*Translate(1,70,210);
+    mv = mv*Scale(1,30,35);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    shapes.drawPlane(vec4(1,1,1,1));
+    mv = mvMatrixStack.popMatrix();
+
+    //far scoreboard
+    scoreboard.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    mv = mv*Translate(239,70,90);
+    mv = mv*Scale(1,30,35);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    shapes.drawPlane(vec4(1,1,1,1));
+    mv = mvMatrixStack.popMatrix();
+
+    //court
+    Court.bind(program);
+    drawCourt(mv);
+
+    //bleacher
+    Wood.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center = bleacher.center();  // get the center of the object
+    mv = mv*Translate(120, 0 , 150);
+    mv = mv*Translate(-center.x, -bleacher.range[2] , -center.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(4.78, 5, 6.75);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    bleacher.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    //bench
+    lightGray.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center2 = bench.center();  // get the center of the object
+    mv = mv*Translate(180, 0 , 207);
+    mv = mv*Translate(-center2.x, -bench.range[2] , -center2.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(1.5);
+    mv=mv*RotateY(90);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    bench.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    //bench2
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center3 = bench.center();  // get the center of the object
+    mv = mv*Translate(60, 0 , 207);
+    mv = mv*Translate(-center3.x, -bench.range[2] , -center3.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(1.5);
+    mv=mv*RotateY(90);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    bench.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    //hoop
+    red.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center4 = hoop.center();  // get the center of the object
+    mv = mv*Translate(212, 0 , 153);
+    mv = mv*Translate(-center4.x, -hoop.range[2] , -center4.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(4);
+    mv=mv*RotateY(90);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    hoop.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    //hoop2
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center5 = hoop.center();  // get the center of the object
+    mv = mv*Translate(27, 0 , 153);
+    mv = mv*Translate(-center5.x, -hoop.range[2] , -center5.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(4);
+    mv=mv*RotateY(-90);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    hoop.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    //scoretable
+    lightGray.bind(program);
+    mvMatrixStack.pushMatrix(mv);
+    vec4 center6 = score.center();  // get the center of the object
+    mv = mv*Translate(120, 0 , 205);
+    mv = mv*Translate(-center6.x, -score.range[2] , -center6.z);  // translate so it is sitting on ground at the origin
+    mv = mv*Scale(8.5);
+    mv=mv*RotateY(-90);
+    glUniformMatrix4fv( model_view, 1, GL_TRUE, mv );
+    score.draw();
+    mv = mvMatrixStack.popMatrix();
+
+    glBindVertexArray( 0 );
+    glutSwapBuffers();
+}
+
+
+//---------------------------------------------------------------------------- keyboard
+
+void
+keyboard( unsigned char key, int x, int y )
+{
+    switch( key )
+    {
+    case 033: // Escape Key
+    case 'q':
+    case 'Q':
+        exit( EXIT_SUCCESS );
+        break;
+    case 'f':     // drive car forward
+        myCar.wheelAngle += 5;
+        myCar.xLoc -= 2*M_PI*2.*5/360.;
+        break;
+    case 'b':     // drive car forward
+        myCar.wheelAngle -= 5;
+        myCar.xLoc += 2*M_PI*2.*5/360.;
+        break;
+    case 't':     // toggle tumblepoint
+        camera.toggle();
+        break;
+    case 'r':     // reset
+        camera.reset();
+        break;
+    }
+
+    glutPostRedisplay();
+}
+
+void keySpecial( int key, int x, int y )
+{
+    camera.keySpecial(key,x,y);
+}
+//---------------------------------------------------------------------------- motion, mouse
+// Mouse controls
+void
+motion( GLint x, GLint y )
+{
+    camera.motion(x,y);
+}
+
+void
+mouse( GLint button, GLint state, GLint x, GLint y )
+{
+    camera.mouseControl(button,state,x,y);
+}
+
+//---------------------------------------------------------------------------- reshape
+
+void
+reshape( int width, int height )
+{
+    glViewport( 0, 0, width, height );
+    camera.aspect = GLfloat(width)/height;
+}
+
+void idle()
+{
+    animateAngle += 0;
+    if (animateAngle <0) animateAngle = 0;
+
+    glutPostRedisplay();
+}
+
+//---------------------------------------------------------------------------- main
+
+int
+main( int argc, char **argv )
+{
+    glutInit( &argc, argv );
+    glutInitDisplayMode( GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH );
+    glutInitWindowSize( 512, 512 );
+    glutInitContextVersion( 3, 2 );
+    glutInitContextProfile( GLUT_CORE_PROFILE );
+    glutCreateWindow( "Navigation Example" );
+
+    glewInit();
+
+    init();
+
+    glutDisplayFunc( display );
+    glutKeyboardFunc( keyboard );
+    glutSpecialFunc(keySpecial);
+    glutMouseFunc( mouse );
+    glutMotionFunc( motion );
+    glutReshapeFunc( reshape );
+    glutIdleFunc(idle); //  need for animation but not mouse interaction
+
+    glutMainLoop();
+    return 0;
+}
